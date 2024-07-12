@@ -12,18 +12,18 @@ import (
 )
 
 type Ad struct {
-	ID        int     `json:"id"`
-	UserID    int     `json:"user_id"`
-	Username  string  `json:"username"`
-	Photos    string  `json:"photos"`
-	Rooms     string  `json:"rooms"`
-	Price     float64 `json:"price"`
-	Type      string  `json:"type"`
-	Area      float64 `json:"area"`
-	HouseName string  `json:"house_name"`
-	District  string  `json:"district"`
-	Text      string  `json:"text"`
-	CreatedAt string  `json:"created_at"`
+	ID        int    `json:"id"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Photos    string `json:"photos"`
+	Rooms     string `json:"rooms"`
+	Price     int    `json:"price"`
+	Type      string `json:"type"`
+	Area      int    `json:"area"`
+	HouseName string `json:"house_name"`
+	District  string `json:"district"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at"`
 }
 
 var db *sql.DB
@@ -48,8 +48,8 @@ func main() {
 
 	router.HandleFunc("/ads", createAd).Methods("POST")
 	router.HandleFunc("/ads", getAds).Methods("GET")
-	router.HandleFunc("/ads/{id}", getAdByID).Methods("GET")   // New endpoint
-	router.HandleFunc("/ads", getAdsByUsername).Methods("GET") // New endpoint for filtering by username
+	router.HandleFunc("/ads/{id}", getAdByID).Methods("GET")
+	router.HandleFunc("/ads", getAdsByUsername).Methods("GET")
 
 	log.Println("Server running on port 8000")
 	log.Fatal(http.ListenAndServe(":8000", router))
