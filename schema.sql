@@ -11,5 +11,7 @@ CREATE TABLE IF NOT EXISTS ads (
     district TEXT,
     text TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_posted INTEGER DEFAULT 0,
+    chat_message_id INTEGER,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );

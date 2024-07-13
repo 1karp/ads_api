@@ -12,24 +12,25 @@ import (
 )
 
 type Ad struct {
-	ID        int    `json:"id"`
-	UserID    int    `json:"user_id"`
-	Username  string `json:"username"`
-	Photos    string `json:"photos"`
-	Rooms     string `json:"rooms"`
-	Price     int    `json:"price"`
-	Type      string `json:"type"`
-	Area      int    `json:"area"`
-	Building  string `json:"building"`
-	District  string `json:"district"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"created_at"`
+	ID            int    `json:"id"`
+	UserID        int    `json:"user_id"`
+	Username      string `json:"username"`
+	Photos        string `json:"photos"`
+	Rooms         string `json:"rooms"`
+	Price         int    `json:"price"`
+	Type          string `json:"type"`
+	Area          int    `json:"area"`
+	Building      string `json:"building"`
+	District      string `json:"district"`
+	Text          string `json:"text"`
+	CreatedAt     string `json:"created_at"`
+	IsPosted      int    `json:"is_posted"`
+	ChatMessageId int    `json:"chat_message_id"`
 }
 
 var db *sql.DB
 
 func main() {
-	// Set up logging to a file
 	logFile, err := os.OpenFile("ads_api.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
@@ -37,7 +38,6 @@ func main() {
 	defer logFile.Close()
 	log.SetOutput(logFile)
 
-	// Connect to the database
 	db, err = sql.Open("sqlite3", "./database.db")
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
@@ -50,7 +50,6 @@ func main() {
 	router.HandleFunc("/ads", getAds).Methods("GET")
 	router.HandleFunc("/ads/{id}", getAdByID).Methods("GET")
 	router.HandleFunc("/ads/{id}", updateAd).Methods("PUT")
-	router.HandleFunc("/ads", getAdsByUsername).Methods("GET")
 
 	log.Println("Server running on port 8000")
 	log.Fatal(http.ListenAndServe(":8000", router))
@@ -65,8 +64,8 @@ func createAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := db.Exec(
-		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text,
+		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId,
 	)
 	if err != nil {
 		log.Printf("Error inserting ad into database: %v", err)
@@ -97,7 +96,7 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads")
+	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads")
 	if err != nil {
 		log.Printf("Error querying ads from database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -108,7 +107,7 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 	var ads []Ad
 	for rows.Next() {
 		var ad Ad
-		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
+		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId); err != nil {
 			log.Printf("Error scanning ad row: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -136,8 +135,8 @@ func updateAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := db.Exec(
-		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ? WHERE id = ?",
-		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, id,
+		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ?, is_posted = ?, chat_message_id = ? WHERE id = ?",
+		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId, id,
 	)
 	if err != nil {
 		log.Printf("Error updating ad in database: %v", err)
@@ -158,8 +157,8 @@ func getAdByID(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var ad Ad
-	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads WHERE id = ?", id).Scan(
-		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt,
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -186,7 +185,7 @@ func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads WHERE username = ?", username)
+	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE username = ?", username)
 	if err != nil {
 		log.Printf("Error querying ads by username from database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -197,7 +196,7 @@ func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
 	var ads []Ad
 	for rows.Next() {
 		var ad Ad
-		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
+		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId); err != nil {
 			log.Printf("Error scanning ad row: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
