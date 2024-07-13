@@ -20,7 +20,7 @@ type Ad struct {
 	Price     int    `json:"price"`
 	Type      string `json:"type"`
 	Area      int    `json:"area"`
-	HouseName string `json:"house_name"`
+	Building  string `json:"building"`
 	District  string `json:"district"`
 	Text      string `json:"text"`
 	CreatedAt string `json:"created_at"`
@@ -49,6 +49,7 @@ func main() {
 	router.HandleFunc("/ads", createAd).Methods("POST")
 	router.HandleFunc("/ads", getAds).Methods("GET")
 	router.HandleFunc("/ads/{id}", getAdByID).Methods("GET")
+	router.HandleFunc("/ads/{id}", updateAd).Methods("PUT")
 	router.HandleFunc("/ads", getAdsByUsername).Methods("GET")
 
 	log.Println("Server running on port 8000")
@@ -64,8 +65,8 @@ func createAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := db.Exec(
-		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, house_name, district, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.HouseName, ad.District, ad.Text,
+		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text,
 	)
 	if err != nil {
 		log.Printf("Error inserting ad into database: %v", err)
@@ -96,7 +97,7 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, house_name, district, text, created_at FROM ads")
+	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads")
 	if err != nil {
 		log.Printf("Error querying ads from database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -107,7 +108,7 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 	var ads []Ad
 	for rows.Next() {
 		var ad Ad
-		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.HouseName, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
+		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
 			log.Printf("Error scanning ad row: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -123,13 +124,42 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Ads retrieved: %v", ads)
 }
 
+func updateAd(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var ad Ad
+	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
+		log.Printf("Error decoding request body: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.Exec(
+		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ? WHERE id = ?",
+		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, id,
+	)
+	if err != nil {
+		log.Printf("Error updating ad in database: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(ad); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+	log.Printf("Ad updated: %v", ad)
+}
+
 func getAdByID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
 	var ad Ad
-	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, house_name, district, text, created_at FROM ads WHERE id = ?", id).Scan(
-		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.HouseName, &ad.District, &ad.Text, &ad.CreatedAt,
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads WHERE id = ?", id).Scan(
+		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -156,7 +186,7 @@ func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, house_name, district, text, created_at FROM ads WHERE username = ?", username)
+	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at FROM ads WHERE username = ?", username)
 	if err != nil {
 		log.Printf("Error querying ads by username from database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -167,7 +197,7 @@ func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
 	var ads []Ad
 	for rows.Next() {
 		var ad Ad
-		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.HouseName, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
+		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt); err != nil {
 			log.Printf("Error scanning ad row: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

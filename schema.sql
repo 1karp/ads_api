@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS ads (
     price INTEGER,
     type TEXT,
     area INTEGER,
-    house_name TEXT,
+    building TEXT,
     district TEXT,
     text TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

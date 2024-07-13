@@ -37,7 +37,7 @@ func setupTestDB() *sql.DB {
 		price INTEGER,
 		type TEXT,
 		area INTEGER,
-		house_name TEXT,
+		building TEXT,
 		district TEXT,
 		text TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -63,16 +63,16 @@ func TestCreateAd(t *testing.T) {
 
 	// Define the test ad data
 	adData := map[string]interface{}{
-		"user_id":    1,
-		"username":   "ikarp",
-		"photos":     "AgACAgIAAxkBAAIOYGaPofYmywRStaolZQL1ruSbKzLWAAKXyzEbNrZoSUAtq3dyXXWAAQADAgADeAADNQQ,AgACAgIAAxkBAAIOYWaPofapfPl66Y7pH-vKU8_A64ZlAAKYyzEbNrZoSbqZCMBWanj0AQADAgADeAADNQQ,AgACAgIAAxkBAAIOYmaPofYiqJxM9sMdMuj5_ubvKDsbAAKZyzEbNrZoSR9VaD1FQcJ0AQADAgADeAADNQQ,AgACAgIAAxkBAAIOY2aPofay_mJ-hl1WkO96iCgaUcaKAAKayzEbNrZoSVZenY4DrPbBAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZGaPofZiq2K6LlQ5erANKYD5h4cnAAKbyzEbNrZoSZ1QwjfhHkjbAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZWaPofamA1JqGo_Thwont_OYyko7AAKcyzEbNrZoSeu-OcZW8pWcAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZmaPofbaDRttobjNsJfdnT3WzvwtAAKdyzEbNrZoSbQXMbPcmG5sAQADAgADeAADNQQ",
-		"rooms":      "1",
-		"price":      1,
-		"type":       "1",
-		"area":       1,
-		"house_name": "1",
-		"district":   "1",
-		"text":       "1",
+		"user_id":  1,
+		"username": "ikarp",
+		"photos":   "AgACAgIAAxkBAAIOYGaPofYmywRStaolZQL1ruSbKzLWAAKXyzEbNrZoSUAtq3dyXXWAAQADAgADeAADNQQ,AgACAgIAAxkBAAIOYWaPofapfPl66Y7pH-vKU8_A64ZlAAKYyzEbNrZoSbqZCMBWanj0AQADAgADeAADNQQ,AgACAgIAAxkBAAIOYmaPofYiqJxM9sMdMuj5_ubvKDsbAAKZyzEbNrZoSR9VaD1FQcJ0AQADAgADeAADNQQ,AgACAgIAAxkBAAIOY2aPofay_mJ-hl1WkO96iCgaUcaKAAKayzEbNrZoSVZenY4DrPbBAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZGaPofZiq2K6LlQ5erANKYD5h4cnAAKbyzEbNrZoSZ1QwjfhHkjbAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZWaPofamA1JqGo_Thwont_OYyko7AAKcyzEbNrZoSeu-OcZW8pWcAQADAgADeAADNQQ,AgACAgIAAxkBAAIOZmaPofbaDRttobjNsJfdnT3WzvwtAAKdyzEbNrZoSbQXMbPcmG5sAQADAgADeAADNQQ",
+		"rooms":    "1",
+		"price":    1,
+		"type":     "1",
+		"area":     1,
+		"building": "1",
+		"district": "1",
+		"text":     "1",
 	}
 
 	// Convert the ad data to JSON
@@ -116,7 +116,74 @@ func TestCreateAd(t *testing.T) {
 	assert.Equal(t, adData["price"], createdAd.Price)
 	assert.Equal(t, adData["type"], createdAd.Type)
 	assert.Equal(t, adData["area"], createdAd.Area)
-	assert.Equal(t, adData["house_name"], createdAd.HouseName)
+	assert.Equal(t, adData["building"], createdAd.Building)
 	assert.Equal(t, adData["district"], createdAd.District)
 	assert.Equal(t, adData["text"], createdAd.Text)
+}
+
+func TestUpdateAd(t *testing.T) {
+	// Setup the test database
+	db = setupTestDB()
+
+	// Create a new user in the database for the ad
+	_, err := db.Exec("INSERT INTO users (username, email) VALUES (?, ?)", "ikarp", "ikarp@example.com")
+	if err != nil {
+		t.Fatalf("could not create test user: %v", err)
+	}
+
+	// Create a new ad in the database
+	_, err = db.Exec("INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		1, "ikarp", "photos", "rooms", 100, "type", 50, "house", "district", "text")
+	if err != nil {
+		t.Fatalf("could not create test ad: %v", err)
+	}
+
+	// Define the updated ad data
+	updatedAdData := map[string]interface{}{
+		"photos": "updated_photos",
+		"rooms":  "updated_rooms",
+		"price":  200,
+		"type":   "updated_type",
+		"area":   100,
+	}
+
+	// Convert the updated ad data to JSON
+	updatedAdDataJSON, err := json.Marshal(updatedAdData)
+	if err != nil {
+		t.Fatalf("could not marshal updated ad data: %v", err)
+	}
+
+	// Create a new HTTP request with the updated ad data
+	req, err := http.NewRequest("PUT", "/ads/1", bytes.NewBuffer(updatedAdDataJSON))
+	if err != nil {
+		t.Fatalf("could not create test request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Create a ResponseRecorder to capture the response
+	rr := httptest.NewRecorder()
+
+	// Create a new HTTP handler
+	handler := http.HandlerFunc(updateAd)
+
+	// Serve the HTTP request
+	handler.ServeHTTP(rr, req)
+
+	// Print the response body for debugging
+	fmt.Println(rr.Body.String())
+
+	// Check the status code
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// Check the response body
+	var updatedAd Ad
+	if err := json.NewDecoder(rr.Body).Decode(&updatedAd); err != nil {
+		t.Fatalf("could not decode response body: %v", err)
+	}
+
+	assert.Equal(t, updatedAdData["photos"], updatedAd.Photos)
+	assert.Equal(t, updatedAdData["rooms"], updatedAd.Rooms)
+	assert.Equal(t, updatedAdData["price"], updatedAd.Price)
+	assert.Equal(t, updatedAdData["type"], updatedAd.Type)
+	assert.Equal(t, updatedAdData["area"], updatedAd.Area)
 }
