@@ -23,6 +23,18 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var existingUser User
+	err := db.QueryRow("SELECT userid FROM users WHERE username = ?", user.Username).Scan(&existingUser.UserID)
+	if err == nil {
+		log.Printf("User already exists: %v", existingUser)
+		w.WriteHeader(http.StatusOK)
+		return
+	} else if err != sql.ErrNoRows {
+		log.Printf("Error checking for existing user: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	result, err := db.Exec("INSERT INTO users (userid, ads, username) VALUES (?, ?, ?)", user.UserID, user.Ads, user.Username)
 	if err != nil {
 		log.Printf("Error inserting user into database: %v", err)
@@ -83,7 +95,6 @@ func GetUserByID(w http.ResponseWriter, r *http.Request) {
 		&user.UserID, &user.Ads, &user.Username,
 	)
 	if err != nil {
-
 		if err == sql.ErrNoRows {
 			http.Error(w, "User not found", http.StatusNotFound)
 		} else {
@@ -112,7 +123,6 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user exists
 	var existingUser User
 	err := db.QueryRow("SELECT userid FROM users WHERE userid = ?", userID).Scan(&existingUser.UserID)
 	if err == sql.ErrNoRows {
@@ -124,7 +134,6 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare statement for updating user
 	stmt, err := db.Prepare("UPDATE users SET ads = ?, username = ? WHERE userid = ?")
 	if err != nil {
 		log.Printf("Error preparing statement: %v", err)
@@ -140,7 +149,6 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch updated user
 	err = db.QueryRow("SELECT userid, ads, username FROM users WHERE userid = ?", userID).Scan(&user.UserID, &user.Ads, &user.Username)
 	if err != nil {
 		log.Printf("Error fetching updated user: %v", err)
