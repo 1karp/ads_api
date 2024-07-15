@@ -1,3 +1,9 @@
+CREATE TABLE IF NOT EXISTS users (
+    userid INTEGER PRIMARY KEY,
+    ads TEXT,
+    username TEXT
+);
+
 CREATE TABLE IF NOT EXISTS ads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -13,5 +19,5 @@ CREATE TABLE IF NOT EXISTS ads (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_posted INTEGER DEFAULT 0,
     chat_message_id INTEGER,
-    FOREIGN KEY(user_id) REFERENCES users(id)
+    FOREIGN KEY(user_id) REFERENCES users(userid)
 );

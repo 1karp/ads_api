@@ -1,11 +1,11 @@
-package main
+package handlers
 
 import (
 	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
@@ -30,32 +30,11 @@ type Ad struct {
 
 var db *sql.DB
 
-func main() {
-	logFile, err := os.OpenFile("ads_api.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("Failed to open log file: %v", err)
-	}
-	defer logFile.Close()
-	log.SetOutput(logFile)
-
-	db, err = sql.Open("sqlite3", "./database.db")
-	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
-	}
-	defer db.Close()
-
-	router := mux.NewRouter()
-
-	router.HandleFunc("/ads", createAd).Methods("POST")
-	router.HandleFunc("/ads", getAds).Methods("GET")
-	router.HandleFunc("/ads/{id}", getAdByID).Methods("GET")
-	router.HandleFunc("/ads/{id}", updateAd).Methods("PUT")
-
-	log.Println("Server running on port 8000")
-	log.Fatal(http.ListenAndServe(":8000", router))
+func InitDB(database *sql.DB) {
+	db = database
 }
 
-func createAd(w http.ResponseWriter, r *http.Request) {
+func CreateAd(w http.ResponseWriter, r *http.Request) {
 	var ad Ad
 	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
 		log.Printf("Error decoding request body: %v", err)
@@ -81,6 +60,14 @@ func createAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ad.ID = int(id)
+
+	// Update the user's ads field with the new ad_id
+	_, err = db.Exec("UPDATE users SET ads = CASE WHEN ads IS NULL THEN ? ELSE ads || ',' || ? END WHERE userid = ?", ad.ID, ad.ID, ad.UserID)
+	if err != nil {
+		log.Printf("Error updating user's ads field: %v", err)
+		// Note: We're not returning here as the ad was successfully created
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(ad); err != nil {
@@ -89,10 +76,10 @@ func createAd(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Ad created: %v", ad)
 }
 
-func getAds(w http.ResponseWriter, r *http.Request) {
-	username := r.URL.Query().Get("username")
-	if username != "" {
-		getAdsByUsername(w, r)
+func GetAds(w http.ResponseWriter, r *http.Request) {
+	userid := r.URL.Query().Get("userid")
+	if userid != "" {
+		GetAdsByUserId(w, r)
 		return
 	}
 
@@ -123,36 +110,7 @@ func getAds(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Ads retrieved: %v", ads)
 }
 
-func updateAd(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	var ad Ad
-	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
-		log.Printf("Error decoding request body: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	_, err := db.Exec(
-		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ?, is_posted = ?, chat_message_id = ? WHERE id = ?",
-		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId, id,
-	)
-	if err != nil {
-		log.Printf("Error updating ad in database: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(ad); err != nil {
-		log.Printf("Error encoding response: %v", err)
-	}
-	log.Printf("Ad updated: %v", ad)
-}
-
-func getAdByID(w http.ResponseWriter, r *http.Request) {
+func GetAdByID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
@@ -178,16 +136,42 @@ func getAdByID(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Ad retrieved by ID: %v", ad)
 }
 
-func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
-	username := r.URL.Query().Get("username")
-	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
+func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
+	userid := r.URL.Query().Get("userid")
+	if userid == "" {
+		http.Error(w, "Userid is required", http.StatusBadRequest)
 		return
 	}
 
-	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE username = ?", username)
+	// First, get the string of ad IDs from the users table
+	var adIDs string
+	err := db.QueryRow("SELECT ads FROM users WHERE userid = ?", userid).Scan(&adIDs)
 	if err != nil {
-		log.Printf("Error querying ads by username from database: %v", err)
+		if err == sql.ErrNoRows {
+			http.Error(w, "User not found", http.StatusNotFound)
+		} else {
+			log.Printf("Error querying user ads: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Split the adIDs string into a slice
+	adIDSlice := strings.Split(adIDs, ",")
+
+	// Prepare the query to get ads by their IDs
+	query := "SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id IN (?" + strings.Repeat(",?", len(adIDSlice)-1) + ")"
+
+	// Convert adIDSlice to []interface{} for the query
+	args := make([]interface{}, len(adIDSlice))
+	for i, id := range adIDSlice {
+		args[i] = id
+	}
+
+	// Execute the query
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("Error querying ads by IDs: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -210,4 +194,72 @@ func getAdsByUsername(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error encoding response: %v", err)
 	}
 	log.Printf("Ads retrieved by username: %v", ads)
+}
+
+func UpdateAd(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var ad Ad
+	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
+		log.Printf("Error decoding request body: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Check if the ad exists before updating
+	var existingAd Ad
+	err := db.QueryRow("SELECT id FROM ads WHERE id = ?", id).Scan(&existingAd.ID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "Ad not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		log.Printf("Error checking existing ad: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = db.Exec(
+		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ?, is_posted = ?, chat_message_id = ? WHERE id = ?",
+		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId, id,
+	)
+	if err != nil {
+		log.Printf("Error updating ad in database: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(ad); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+	log.Printf("Ad updated: %v", ad)
+}
+
+func DeleteAd(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	result, err := db.Exec("DELETE FROM ads WHERE id = ?", id)
+	if err != nil {
+		log.Printf("Error deleting ad from database: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Error getting rows affected: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if rowsAffected == 0 {
+		http.Error(w, "Ad not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	log.Printf("Ad deleted: %s", id)
 }
