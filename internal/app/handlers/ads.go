@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -237,29 +241,127 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Ad updated: %v", ad)
 }
 
-func DeleteAd(w http.ResponseWriter, r *http.Request) {
+func PostAd(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	result, err := db.Exec("DELETE FROM ads WHERE id = ?", id)
+	var ad Ad
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.IsPosted, &ad.ChatMessageId)
 	if err != nil {
-		log.Printf("Error deleting ad from database: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Error fetching ad details: %v", err)
+		http.Error(w, "Error fetching ad details", http.StatusInternalServerError)
 		return
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	if ad.IsPosted == 1 {
+		http.Error(w, "Ad already posted", http.StatusBadRequest)
+		return
+	}
+
+	err = postToTelegramChannel(ad)
 	if err != nil {
-		log.Printf("Error getting rows affected: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Error posting to Telegram: %v", err)
+		http.Error(w, "Error posting to Telegram", http.StatusInternalServerError)
 		return
 	}
 
-	if rowsAffected == 0 {
-		http.Error(w, "Ad not found", http.StatusNotFound)
+	_, err = db.Exec("UPDATE ads SET is_posted = 1 WHERE id = ?", id)
+	if err != nil {
+		log.Printf("Error updating ad status: %v", err)
+		http.Error(w, "Error updating ad status", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
-	log.Printf("Ad deleted: %s", id)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Ad successfully posted to Telegram channel")
+}
+
+func calculatePriceHash(price int) int {
+	return ((price-1)/10000 + 1) * 10000
+}
+
+func generateAdText(ad Ad, districtHash, priceHash string) string {
+	return fmt.Sprintf(
+		"#%s, #under_%s\n\n"+
+			"Rooms: %s\n"+
+			"Price: %d AED/Year\n"+
+			"Type: %s\n"+
+			"Area: %d sqm\n"+
+			"Building: %s\n"+
+			"District: %s\n\n"+
+			"%s\n\n"+
+			"Contact: @%s",
+		districtHash, priceHash,
+		ad.Rooms, ad.Price, ad.Type, ad.Area,
+		ad.Building, ad.District, ad.Text, ad.Username)
+}
+
+func postToTelegramChannel(ad Ad) error {
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	channelID := os.Getenv("TELEGRAM_CHANNEL_ID")
+	if botToken == "" || channelID == "" {
+		return fmt.Errorf("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set")
+	}
+
+	districtHash := strings.ReplaceAll(ad.District, " ", "_")
+	priceHash := fmt.Sprintf("%d", calculatePriceHash(ad.Price))
+	text := generateAdText(ad, districtHash, priceHash)
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMediaGroup", botToken)
+	photos := strings.Split(ad.Photos, ",")
+	media := make([]map[string]string, len(photos))
+
+	for i, photo := range photos {
+		mediaItem := map[string]string{
+			"type":  "photo",
+			"media": photo,
+		}
+		if i == 0 {
+			mediaItem["caption"] = text
+			mediaItem["parse_mode"] = "HTML"
+		}
+		media[i] = mediaItem
+	}
+
+	payload := map[string]interface{}{
+		"chat_id": channelID,
+		"media":   media,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("error marshaling payload: %v", err)
+	}
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return fmt.Errorf("error making POST request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Ok     bool `json:"ok"`
+		Result []struct {
+			MessageID int `json:"message_id"`
+		} `json:"result"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("error decoding response: %v", err)
+	}
+
+	if len(result.Result) > 0 {
+		_, err = db.Exec("UPDATE ads SET chat_message_id = ? WHERE id = ?", result.Result[0].MessageID, ad.ID)
+		if err != nil {
+			return fmt.Errorf("error updating chat_message_id: %v", err)
+		}
+	}
+
+	return nil
 }

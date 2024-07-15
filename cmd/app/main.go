@@ -8,6 +8,7 @@ import (
 
 	"github.com/1karp/ads_api/internal/app/handlers"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -46,6 +47,10 @@ func initDB() {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 	logFile, err := os.OpenFile("ads_api.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open log file: %v", err)
@@ -69,6 +74,7 @@ func main() {
 	router.HandleFunc("/ads", handlers.GetAds).Methods("GET")
 	router.HandleFunc("/ads/{id}", handlers.GetAdByID).Methods("GET")
 	router.HandleFunc("/ads/{id}", handlers.UpdateAd).Methods("PUT")
+	router.HandleFunc("/ads/{id}/post", handlers.PostAd).Methods("POST")
 
 	router.HandleFunc("/users", handlers.CreateUser).Methods("POST")
 	router.HandleFunc("/users", handlers.GetUsers).Methods("GET")
