@@ -65,11 +65,9 @@ func CreateAd(w http.ResponseWriter, r *http.Request) {
 
 	ad.ID = int(id)
 
-	// Update the user's ads field with the new ad_id
 	_, err = db.Exec("UPDATE users SET ads = CASE WHEN ads IS NULL THEN ? ELSE ads || ',' || ? END WHERE userid = ?", ad.ID, ad.ID, ad.UserID)
 	if err != nil {
 		log.Printf("Error updating user's ads field: %v", err)
-		// Note: We're not returning here as the ad was successfully created
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -147,7 +145,6 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// First, get the string of ad IDs from the users table
 	var adIDs string
 	err := db.QueryRow("SELECT ads FROM users WHERE userid = ?", userid).Scan(&adIDs)
 	if err != nil {
@@ -160,19 +157,15 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Split the adIDs string into a slice
 	adIDSlice := strings.Split(adIDs, ",")
 
-	// Prepare the query to get ads by their IDs
 	query := "SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id IN (?" + strings.Repeat(",?", len(adIDSlice)-1) + ")"
 
-	// Convert adIDSlice to []interface{} for the query
 	args := make([]interface{}, len(adIDSlice))
 	for i, id := range adIDSlice {
 		args[i] = id
 	}
 
-	// Execute the query
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		log.Printf("Error querying ads by IDs: %v", err)
@@ -211,7 +204,6 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if the ad exists before updating
 	var existingAd Ad
 	err := db.QueryRow("SELECT id FROM ads WHERE id = ?", id).Scan(&existingAd.ID)
 	if err == sql.ErrNoRows {
@@ -361,6 +353,88 @@ func postToTelegramChannel(ad Ad) error {
 		if err != nil {
 			return fmt.Errorf("error updating chat_message_id: %v", err)
 		}
+	}
+
+	return nil
+}
+
+func EditAdInTelegram(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var ad Ad
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.IsPosted, &ad.ChatMessageId)
+	if err != nil {
+		log.Printf("Error fetching ad details: %v", err)
+		http.Error(w, "Error fetching ad details", http.StatusInternalServerError)
+		return
+	}
+
+	if ad.IsPosted != 1 || ad.ChatMessageId == 0 {
+		http.Error(w, "Ad not posted or message ID not available", http.StatusBadRequest)
+		return
+	}
+
+	err = editTelegramMessage(ad)
+	if err != nil {
+		log.Printf("Error editing Telegram message: %v", err)
+		http.Error(w, "Error editing Telegram message", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Ad successfully edited in Telegram channel")
+}
+
+func editTelegramMessage(ad Ad) error {
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	channelID := os.Getenv("TELEGRAM_CHANNEL_ID")
+	if botToken == "" || channelID == "" {
+		return fmt.Errorf("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID not set")
+	}
+
+	districtHash := strings.ReplaceAll(ad.District, " ", "_")
+	priceHash := fmt.Sprintf("%d", calculatePriceHash(ad.Price))
+	newText := generateAdText(ad, districtHash, priceHash)
+
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/editMessageCaption", botToken)
+
+	params := map[string]interface{}{
+		"chat_id":    channelID,
+		"message_id": ad.ChatMessageId,
+		"caption":    newText,
+		"parse_mode": "HTML",
+	}
+
+	jsonParams, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("error marshaling params: %v", err)
+	}
+
+	resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(jsonParams))
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Ok          bool   `json:"ok"`
+		ErrorCode   int    `json:"error_code,omitempty"`
+		Description string `json:"description,omitempty"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	if !result.Ok {
+		return fmt.Errorf("failed to edit message: %s (code: %d)", result.Description, result.ErrorCode)
 	}
 
 	return nil

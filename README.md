@@ -25,6 +25,7 @@ This project is an API for managing advertisements, built with Go. It provides e
 - GET /ads/{id} - Retrieve a specific ad
 - PUT /ads/{id} - Update an ad
 - POST /ads/{id}/post - Post an ad
+- POST /ads/{id}/edit-post - Edit an ad in Telegram
 - POST /users - Create a new user
 - GET /users - Retrieve all users
 - GET /users/{userid} - Retrieve a specific user

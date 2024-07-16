@@ -75,6 +75,7 @@ func main() {
 	router.HandleFunc("/ads/{id}", handlers.GetAdByID).Methods("GET")
 	router.HandleFunc("/ads/{id}", handlers.UpdateAd).Methods("PUT")
 	router.HandleFunc("/ads/{id}/post", handlers.PostAd).Methods("POST")
+	router.HandleFunc("/ads/{id}/edit-post", handlers.EditAdInTelegram).Methods("POST")
 
 	router.HandleFunc("/users", handlers.CreateUser).Methods("POST")
 	router.HandleFunc("/users", handlers.GetUsers).Methods("GET")
