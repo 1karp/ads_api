@@ -18,7 +18,7 @@ func TestCreateUser(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO users").WillReturnResult(sqlmock.NewResult(1, 1))
 
-	user := User{Ads: "test ads", Username: "testuser"}
+	user := User{UserID: 1, Username: "testuser"}
 	body, _ := json.Marshal(user)
 	req, _ := http.NewRequest("POST", "/users", bytes.NewBuffer(body))
 	rr := httptest.NewRecorder()

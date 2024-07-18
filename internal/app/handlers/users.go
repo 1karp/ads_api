@@ -35,7 +35,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO users (userid, ads, username) VALUES (?, ?, ?)", user.UserID, user.Ads, user.Username)
+	result, err := db.Exec("INSERT INTO users (userid, username) VALUES (?, ?)", user.UserID, user.Username)
 	if err != nil {
 		log.Printf("Error inserting user into database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -162,4 +162,32 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error encoding response: %v", err)
 	}
 	log.Printf("User updated: %v", user)
+}
+
+func GetAdsByUserID(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["userid"]
+	rows, err := db.Query("SELECT ads FROM users WHERE userid = ?", userID)
+	if err != nil {
+		log.Printf("Error querying ads by user ID: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	ads := []string{}
+	for rows.Next() {
+		var ad string
+		if err := rows.Scan(&ad); err != nil {
+			log.Printf("Error scanning ad: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ads = append(ads, ad)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(ads); err != nil {
+		log.Printf("Error encoding response: %v", err)
+	}
+	log.Printf("Ads retrieved: %v", ads)
 }
