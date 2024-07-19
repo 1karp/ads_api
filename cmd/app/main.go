@@ -1,33 +1,34 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
+	"github.com/1karp/ads_api/internal/app/config"
 	"github.com/1karp/ads_api/internal/app/database"
 	"github.com/1karp/ads_api/internal/app/handlers"
+	"github.com/1karp/ads_api/internal/app/logging"
 	"github.com/1karp/ads_api/internal/app/router"
 	"github.com/joho/godotenv"
-	_ "github.com/mattn/go-sqlite3"
 )
-
-func setupLogging() {
-	logFile, err := os.OpenFile("ads_api.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("Failed to open log file: %v", err)
-	}
-	log.SetOutput(logFile)
-}
 
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
+		slog.Error("Error loading .env file", "error", err)
+	}
+
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("Failed to load configuration", "error", err)
+		os.Exit(1)
 	}
 
 	// Setup logging
-	setupLogging()
+	logger := logging.SetupLogging(cfg)
+	slog.SetDefault(logger)
 
 	// Initialize database
 	db := database.InitializeDatabase()
@@ -40,6 +41,9 @@ func main() {
 	r := router.SetupRoutes()
 
 	// Start server
-	log.Println("Server running on port 8000")
-	log.Fatal(http.ListenAndServe(":8000", r))
+	slog.Info("Server starting", "port", cfg.Port)
+	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
+		slog.Error("Server failed to start", "error", err)
+		os.Exit(1)
+	}
 }

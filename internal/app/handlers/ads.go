@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -42,7 +42,7 @@ func InitDB(database *sql.DB) {
 func CreateAd(w http.ResponseWriter, r *http.Request) {
 	var ad Ad
 	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
-		log.Printf("Error decoding request body: %v", err)
+		slog.Error("Error decoding request body", "error", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -52,22 +52,22 @@ func CreateAd(w http.ResponseWriter, r *http.Request) {
 		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId,
 	).Scan(&ad.ID)
 	if err != nil {
-		log.Printf("Error inserting ad into database: %v", err)
+		slog.Error("Error inserting ad into database", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	_, err = db.Exec("UPDATE users SET ads = COALESCE(ads, '') || CASE WHEN ads = '' THEN $1::text ELSE ',' || $1::text END WHERE userid = $2", ad.ID, ad.UserID)
 	if err != nil {
-		log.Printf("Error updating user's ads field: %v", err)
+		slog.Error("Error updating user's ads field", "error", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(ad); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		slog.Error("Error encoding response", "error", err)
 	}
-	log.Printf("Ad created: %v", ad)
+	slog.Info("Ad created successfully", "ad_id", ad.ID)
 }
 
 func GetAds(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func GetAds(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads")
 	if err != nil {
-		log.Printf("Error querying ads from database: %v", err)
+		slog.Error("Error querying ads from database", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -89,7 +89,7 @@ func GetAds(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var ad Ad
 		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId); err != nil {
-			log.Printf("Error scanning ad row: %v", err)
+			slog.Error("Error scanning ad row", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -99,9 +99,9 @@ func GetAds(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(ads); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		slog.Error("Error encoding response", "error", err)
 	}
-	log.Printf("Ads retrieved: %v", ads)
+	slog.Info("Ads retrieved successfully", "count", len(ads))
 }
 
 func GetAdByID(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func GetAdByID(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Ad not found", http.StatusNotFound)
 		} else {
-			log.Printf("Error querying ad by ID: %v", err)
+			slog.Error("Error querying ad by ID", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
@@ -125,9 +125,9 @@ func GetAdByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(ad); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		slog.Error("Error encoding response", "error", err)
 	}
-	log.Printf("Ad retrieved by ID: %v", ad)
+	slog.Info("Ad retrieved successfully", "ad_id", ad.ID)
 }
 
 func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +143,7 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			http.Error(w, "User not found", http.StatusNotFound)
 		} else {
-			log.Printf("Error querying user ads: %v", err)
+			slog.Error("Error querying user ads", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
@@ -155,7 +155,7 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(query, pq.Array(adIDSlice))
 	if err != nil {
-		log.Printf("Error querying ads by IDs: %v", err)
+		slog.Error("Error querying ads by IDs", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -165,7 +165,7 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var ad Ad
 		if err := rows.Scan(&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId); err != nil {
-			log.Printf("Error scanning ad row: %v", err)
+			slog.Error("Error scanning ad row", "error", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -175,9 +175,9 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(ads); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		slog.Error("Error encoding response", "error", err)
 	}
-	log.Printf("Ads retrieved by username: %v", ads)
+	slog.Info("Ads retrieved successfully by user ID", "user_id", userid, "count", len(ads))
 }
 
 func UpdateAd(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +186,7 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 
 	var ad Ad
 	if err := json.NewDecoder(r.Body).Decode(&ad); err != nil {
-		log.Printf("Error decoding request body: %v", err)
+		slog.Error("Error decoding request body", "error", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -197,7 +197,7 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Ad not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		log.Printf("Error checking existing ad: %v", err)
+		slog.Error("Error checking existing ad", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -207,7 +207,7 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId, id,
 	)
 	if err != nil {
-		log.Printf("Error updating ad in database: %v", err)
+		slog.Error("Error updating ad in database", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -215,9 +215,9 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(ad); err != nil {
-		log.Printf("Error encoding response: %v", err)
+		slog.Error("Error encoding response", "error", err)
 	}
-	log.Printf("Ad updated: %v", ad)
+	slog.Info("Ad updated successfully", "ad_id", id)
 }
 
 func PostAd(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +228,7 @@ func PostAd(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = $1", id).Scan(
 		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.IsPosted, &ad.ChatMessageId)
 	if err != nil {
-		log.Printf("Error fetching ad details: %v", err)
+		slog.Error("Error fetching ad details", "error", err)
 		http.Error(w, "Error fetching ad details", http.StatusInternalServerError)
 		return
 	}
@@ -240,20 +240,21 @@ func PostAd(w http.ResponseWriter, r *http.Request) {
 
 	err = postToTelegramChannel(ad)
 	if err != nil {
-		log.Printf("Error posting to Telegram: %v", err)
+		slog.Error("Error posting to Telegram", "error", err)
 		http.Error(w, "Error posting to Telegram", http.StatusInternalServerError)
 		return
 	}
 
 	_, err = db.Exec("UPDATE ads SET is_posted = 1 WHERE id = $1", id)
 	if err != nil {
-		log.Printf("Error updating ad status: %v", err)
+		slog.Error("Error updating ad status", "error", err)
 		http.Error(w, "Error updating ad status", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Ad successfully posted to Telegram channel")
+	slog.Info("Ad posted successfully to Telegram", "ad_id", id)
 }
 
 func calculatePriceHash(price int) int {
@@ -342,6 +343,7 @@ func postToTelegramChannel(ad Ad) error {
 		}
 	}
 
+	slog.Info("Ad successfully posted to Telegram", "ad_id", ad.ID)
 	return nil
 }
 
@@ -350,10 +352,10 @@ func EditAdInTelegram(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var ad Ad
-	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = $1", id).Scan(
 		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.IsPosted, &ad.ChatMessageId)
 	if err != nil {
-		log.Printf("Error fetching ad details: %v", err)
+		slog.Error("Error fetching ad details", "error", err)
 		http.Error(w, "Error fetching ad details", http.StatusInternalServerError)
 		return
 	}
@@ -365,13 +367,14 @@ func EditAdInTelegram(w http.ResponseWriter, r *http.Request) {
 
 	err = editTelegramMessage(ad)
 	if err != nil {
-		log.Printf("Error editing Telegram message: %v", err)
+		slog.Error("Error editing Telegram message", "error", err)
 		http.Error(w, "Error editing Telegram message", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Ad successfully edited in Telegram channel")
+	slog.Info("Ad successfully edited in Telegram channel", "ad_id", id)
 }
 
 func editTelegramMessage(ad Ad) error {
@@ -424,5 +427,6 @@ func editTelegramMessage(ad Ad) error {
 		return fmt.Errorf("failed to edit message: %s (code: %d)", result.Description, result.ErrorCode)
 	}
 
+	slog.Info("Telegram message successfully edited", "ad_id", ad.ID)
 	return nil
 }
