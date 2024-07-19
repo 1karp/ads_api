@@ -24,7 +24,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existingUser User
-	err := db.QueryRow("SELECT userid FROM users WHERE username = ?", user.Username).Scan(&existingUser.UserID)
+	err := db.QueryRow("SELECT userid FROM users WHERE username = $1", user.Username).Scan(&existingUser.UserID)
 	if err == nil {
 		log.Printf("User already exists: %v", existingUser)
 		w.WriteHeader(http.StatusOK)
@@ -35,21 +35,13 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO users (userid, username) VALUES (?, ?)", user.UserID, user.Username)
+	err = db.QueryRow("INSERT INTO users (username, userid) VALUES ($1, $2) RETURNING userid", user.Username, user.UserID).Scan(&user.UserID)
 	if err != nil {
 		log.Printf("Error inserting user into database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		log.Printf("Error getting last insert ID: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	user.UserID = int(id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(user); err != nil {
@@ -91,7 +83,7 @@ func GetUserByID(w http.ResponseWriter, r *http.Request) {
 	userID := vars["userid"]
 
 	var user User
-	err := db.QueryRow("SELECT userid, ads, username FROM users WHERE userid = ?", userID).Scan(
+	err := db.QueryRow("SELECT userid, ads, username FROM users WHERE userid = $1", userID).Scan(
 		&user.UserID, &user.Ads, &user.Username,
 	)
 	if err != nil {
@@ -124,7 +116,7 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existingUser User
-	err := db.QueryRow("SELECT userid FROM users WHERE userid = ?", userID).Scan(&existingUser.UserID)
+	err := db.QueryRow("SELECT userid FROM users WHERE userid = $1", userID).Scan(&existingUser.UserID)
 	if err == sql.ErrNoRows {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
@@ -134,22 +126,14 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stmt, err := db.Prepare("UPDATE users SET ads = ?, username = ? WHERE userid = ?")
-	if err != nil {
-		log.Printf("Error preparing statement: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
-
-	_, err = stmt.Exec(user.Ads, user.Username, userID)
+	_, err = db.Exec("UPDATE users SET ads = $1, username = $2 WHERE userid = $3", user.Ads, user.Username, userID)
 	if err != nil {
 		log.Printf("Error updating user: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = db.QueryRow("SELECT userid, ads, username FROM users WHERE userid = ?", userID).Scan(&user.UserID, &user.Ads, &user.Username)
+	err = db.QueryRow("SELECT userid, ads, username FROM users WHERE userid = $1", userID).Scan(&user.UserID, &user.Ads, &user.Username)
 	if err != nil {
 		log.Printf("Error fetching updated user: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -167,7 +151,7 @@ func UpdateUser(w http.ResponseWriter, r *http.Request) {
 func GetAdsByUserID(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["userid"]
-	rows, err := db.Query("SELECT ads FROM users WHERE userid = ?", userID)
+	rows, err := db.Query("SELECT ads FROM users WHERE userid = $1", userID)
 	if err != nil {
 		log.Printf("Error querying ads by user ID: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

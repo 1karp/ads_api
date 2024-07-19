@@ -12,7 +12,8 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/lib/pq"
+	_ "github.com/lib/pq"
 )
 
 type Ad struct {
@@ -46,26 +47,17 @@ func CreateAd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec(
-		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	err := db.QueryRow(
+		"INSERT INTO ads (user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id",
 		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId,
-	)
+	).Scan(&ad.ID)
 	if err != nil {
 		log.Printf("Error inserting ad into database: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		log.Printf("Error getting last insert ID: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	ad.ID = int(id)
-
-	_, err = db.Exec("UPDATE users SET ads = CASE WHEN ads IS NULL THEN ? ELSE ads || ',' || ? END WHERE userid = ?", ad.ID, ad.ID, ad.UserID)
+	_, err = db.Exec("UPDATE users SET ads = COALESCE(ads, '') || CASE WHEN ads = '' THEN $1::text ELSE ',' || $1::text END WHERE userid = $2", ad.ID, ad.UserID)
 	if err != nil {
 		log.Printf("Error updating user's ads field: %v", err)
 	}
@@ -117,7 +109,7 @@ func GetAdByID(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var ad Ad
-	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id = $1", id).Scan(
 		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.CreatedAt, &ad.IsPosted, &ad.ChatMessageId,
 	)
 	if err != nil {
@@ -146,7 +138,7 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var adIDs string
-	err := db.QueryRow("SELECT ads FROM users WHERE userid = ?", userid).Scan(&adIDs)
+	err := db.QueryRow("SELECT ads FROM users WHERE userid = $1", userid).Scan(&adIDs)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "User not found", http.StatusNotFound)
@@ -159,14 +151,9 @@ func GetAdsByUserId(w http.ResponseWriter, r *http.Request) {
 
 	adIDSlice := strings.Split(adIDs, ",")
 
-	query := "SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id IN (?" + strings.Repeat(",?", len(adIDSlice)-1) + ")"
+	query := fmt.Sprintf("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, created_at, is_posted, chat_message_id FROM ads WHERE id = ANY($1::int[])")
 
-	args := make([]interface{}, len(adIDSlice))
-	for i, id := range adIDSlice {
-		args[i] = id
-	}
-
-	rows, err := db.Query(query, args...)
+	rows, err := db.Query(query, pq.Array(adIDSlice))
 	if err != nil {
 		log.Printf("Error querying ads by IDs: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -205,7 +192,7 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existingAd Ad
-	err := db.QueryRow("SELECT id FROM ads WHERE id = ?", id).Scan(&existingAd.ID)
+	err := db.QueryRow("SELECT id FROM ads WHERE id = $1", id).Scan(&existingAd.ID)
 	if err == sql.ErrNoRows {
 		http.Error(w, "Ad not found", http.StatusNotFound)
 		return
@@ -216,7 +203,7 @@ func UpdateAd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = db.Exec(
-		"UPDATE ads SET user_id = ?, username = ?, photos = ?, rooms = ?, price = ?, type = ?, area = ?, building = ?, district = ?, text = ?, is_posted = ?, chat_message_id = ? WHERE id = ?",
+		"UPDATE ads SET user_id = $1, username = $2, photos = $3, rooms = $4, price = $5, type = $6, area = $7, building = $8, district = $9, text = $10, is_posted = $11, chat_message_id = $12 WHERE id = $13",
 		ad.UserID, ad.Username, ad.Photos, ad.Rooms, ad.Price, ad.Type, ad.Area, ad.Building, ad.District, ad.Text, ad.IsPosted, ad.ChatMessageId, id,
 	)
 	if err != nil {
@@ -238,7 +225,7 @@ func PostAd(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var ad Ad
-	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = ?", id).Scan(
+	err := db.QueryRow("SELECT id, user_id, username, photos, rooms, price, type, area, building, district, text, is_posted, chat_message_id FROM ads WHERE id = $1", id).Scan(
 		&ad.ID, &ad.UserID, &ad.Username, &ad.Photos, &ad.Rooms, &ad.Price, &ad.Type, &ad.Area, &ad.Building, &ad.District, &ad.Text, &ad.IsPosted, &ad.ChatMessageId)
 	if err != nil {
 		log.Printf("Error fetching ad details: %v", err)
@@ -258,7 +245,7 @@ func PostAd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Exec("UPDATE ads SET is_posted = 1 WHERE id = ?", id)
+	_, err = db.Exec("UPDATE ads SET is_posted = 1 WHERE id = $1", id)
 	if err != nil {
 		log.Printf("Error updating ad status: %v", err)
 		http.Error(w, "Error updating ad status", http.StatusInternalServerError)
@@ -349,7 +336,7 @@ func postToTelegramChannel(ad Ad) error {
 	}
 
 	if len(result.Result) > 0 {
-		_, err = db.Exec("UPDATE ads SET chat_message_id = ? WHERE id = ?", result.Result[0].MessageID, ad.ID)
+		_, err = db.Exec("UPDATE ads SET chat_message_id = $1 WHERE id = $2", result.Result[0].MessageID, ad.ID)
 		if err != nil {
 			return fmt.Errorf("error updating chat_message_id: %v", err)
 		}
